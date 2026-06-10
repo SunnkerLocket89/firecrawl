@@ -130,28 +130,47 @@ defmodule Firecrawl do
     Enum.join([first | Enum.map(rest, &String.capitalize/1)])
   end
 
-  defp fetch_file_field(file, key) do
-    case Keyword.fetch(file, key) do
-      {:ok, _value} = ok -> ok
-      :error -> {:error, %ArgumentError{message: "missing required file field: #{key}"}}
+  @ask_support_agent_schema NimbleOptions.new!([
+    question: [type: :string, required: true, doc: "Question or issue for the support agent to diagnose."],
+    rationale: [type: :string, doc: "Optional context about what the end user is trying to accomplish."]
+  ])
+
+  @ask_support_agent_key_mapping %{question: "question", rationale: "rationale"}
+
+  @doc """
+  Ask the Firecrawl support agent
+
+  `POST /support/ask`
+
+  Tag: Support
+
+  ## Parameters
+
+  Validated by `NimbleOptions`. Pass params as a keyword list with snake_case keys.
+  See `@ask_support_agent_schema` for the full schema.
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec ask_support_agent(keyword(), keyword()) :: response()
+  def ask_support_agent(params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @ask_support_agent_schema) do
+      Req.post(client(opts), url: "/support/ask", json: to_body(params, @ask_support_agent_key_mapping))
     end
   end
 
-  defp validate_filename(filename) do
-    if is_binary(filename) and filename != "" do
-      :ok
-    else
-      {:error, %ArgumentError{message: "filename cannot be empty"}}
-    end
+
+  @doc """
+  Bang variant of `ask_support_agent`. Raises on error.
+  """
+  @spec ask_support_agent!(keyword(), keyword()) :: Req.Response.t()
+  def ask_support_agent!(params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @ask_support_agent_schema)
+    Req.post!(client(opts), url: "/support/ask", json: to_body(params, @ask_support_agent_key_mapping))
   end
 
-  defp validate_data(data) do
-    if is_nil(data) do
-      {:error, %ArgumentError{message: "file data cannot be empty"}}
-    else
-      :ok
-    end
-  end
 
   @doc """
   Cancel an agent job
@@ -295,12 +314,14 @@ defmodule Firecrawl do
     delay: [type: {:or, [:integer, :float]}, doc: "Delay in seconds between scrapes. This helps respect website rate limits. Setting this forces concurrency to 1."],
     exclude_paths: [type: {:list, :string}, doc: "URL pathname regex patterns that exclude matching URLs from the crawl. For example, if you set \"excludePaths\": [\"blog/.*\"] for the base URL firecrawl.dev, any results matching that pattern will be excluded, such as https://www.firecrawl.dev/blog/firecrawl-launch-week-1-recap."],
     ignore_query_parameters: [type: :boolean, doc: "Do not re-scrape the same path with different (or none) query parameters"],
+    ignore_robots_txt: [type: :boolean, doc: "Ignore the website's robots.txt rules. Enterprise only — contact support@firecrawl.com to enable."],
     include_paths: [type: {:list, :string}, doc: "URL pathname regex patterns that include matching URLs in the crawl. Only the paths that match the specified patterns will be included in the response. Note: the starting URL is also checked against these patterns — if it does not match, the crawl may return 0 pages. For example, if you set \"includePaths\": [\"blog/.*\"] for the base URL firecrawl.dev/blog, only pages under /blog/ will be included in the results, such as https://www.firecrawl.dev/blog/firecrawl-launch-week-1-recap."],
     limit: [type: :integer, doc: "Maximum number of pages to crawl. Default limit is 10000."],
     max_concurrency: [type: :integer, doc: "Maximum number of concurrent scrapes. This parameter allows you to set a concurrency limit for this crawl. If not specified, the crawl adheres to your team's concurrency limit."],
     max_discovery_depth: [type: :integer, doc: "Maximum depth to crawl based on discovery order. The root site and sitemapped pages has a discovery depth of 0. For example, if you set it to 1, and you set `sitemap: 'skip'`, you will only crawl the entered URL and all URLs that are linked on that page."],
     prompt: [type: :string, doc: "A prompt to use to generate the crawler options (all the parameters below) from natural language. Explicitly set parameters will override the generated equivalents."],
     regex_on_full_url: [type: :boolean, doc: "When true, includePaths and excludePaths regex patterns are matched against the full URL (including query parameters) instead of just the URL pathname. Useful when you need to filter URLs based on query strings."],
+    robots_user_agent: [type: :string, doc: "Custom User-Agent string for robots.txt evaluation. When set, robots.txt is fetched with this User-Agent and allow/disallow rules are matched against it instead of the default. Enterprise only — contact support@firecrawl.com to enable."],
     scrape_options: [type: :keyword_list],
     sitemap: [type: {:or, [{:in, [:skip, :include, :only]}, :string]}, doc: "Sitemap mode when crawling. If you set it to 'skip', the crawler will ignore the website sitemap and only crawl the entered URL and discover pages from there onwards. If you set it to 'only', the crawler will only crawl URLs from the sitemap (plus the start URL) and will not discover links from HTML."],
     url: [type: :string, required: true, doc: "The base URL to start crawling from"],
@@ -308,7 +329,7 @@ defmodule Firecrawl do
     zero_data_retention: [type: :boolean, doc: "If true, this will enable zero data retention for this crawl. To enable this feature, please contact help@firecrawl.dev"]
   ])
 
-  @crawl_urls_key_mapping %{allow_external_links: "allowExternalLinks", allow_subdomains: "allowSubdomains", crawl_entire_domain: "crawlEntireDomain", delay: "delay", exclude_paths: "excludePaths", ignore_query_parameters: "ignoreQueryParameters", include_paths: "includePaths", limit: "limit", max_concurrency: "maxConcurrency", max_discovery_depth: "maxDiscoveryDepth", prompt: "prompt", regex_on_full_url: "regexOnFullURL", scrape_options: "scrapeOptions", sitemap: "sitemap", url: "url", webhook: "webhook", zero_data_retention: "zeroDataRetention"}
+  @crawl_urls_key_mapping %{allow_external_links: "allowExternalLinks", allow_subdomains: "allowSubdomains", crawl_entire_domain: "crawlEntireDomain", delay: "delay", exclude_paths: "excludePaths", ignore_query_parameters: "ignoreQueryParameters", ignore_robots_txt: "ignoreRobotsTxt", include_paths: "includePaths", limit: "limit", max_concurrency: "maxConcurrency", max_discovery_depth: "maxDiscoveryDepth", prompt: "prompt", regex_on_full_url: "regexOnFullURL", robots_user_agent: "robotsUserAgent", scrape_options: "scrapeOptions", sitemap: "sitemap", url: "url", webhook: "webhook", zero_data_retention: "zeroDataRetention"}
 
   @doc """
   Crawl multiple URLs based on options
@@ -389,6 +410,54 @@ defmodule Firecrawl do
   end
 
 
+  @create_monitor_schema NimbleOptions.new!([
+    goal: [type: :string, doc: "Plain-language goal used to judge whether changed pages are meaningful. If provided and `judgeEnabled` is omitted, judging is enabled automatically."],
+    judge_enabled: [type: :boolean, doc: "Whether to judge changed pages against `goal`. Requires a non-empty `goal` to run."],
+    name: [type: :string, required: true],
+    notification: [type: :keyword_list],
+    retention_days: [type: :integer],
+    schedule: [type: :keyword_list, required: true, doc: "Schedule for monitor checks. Provide either `cron` or `text`."],
+    targets: [type: {:list, :any}, required: true],
+    webhook: [type: :keyword_list, doc: "Webhook destination for monitor page and check completion events."]
+  ])
+
+  @create_monitor_key_mapping %{goal: "goal", judge_enabled: "judgeEnabled", name: "name", notification: "notification", retention_days: "retentionDays", schedule: "schedule", targets: "targets", webhook: "webhook"}
+
+  @doc """
+  Create a monitor
+
+  `POST /monitor`
+
+  Tag: Monitoring
+
+  ## Parameters
+
+  Validated by `NimbleOptions`. Pass params as a keyword list with snake_case keys.
+  See `@create_monitor_schema` for the full schema.
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec create_monitor(keyword(), keyword()) :: response()
+  def create_monitor(params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @create_monitor_schema) do
+      Req.post(client(opts), url: "/monitor", json: to_body(params, @create_monitor_key_mapping))
+    end
+  end
+
+
+  @doc """
+  Bang variant of `create_monitor`. Raises on error.
+  """
+  @spec create_monitor!(keyword(), keyword()) :: Req.Response.t()
+  def create_monitor!(params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @create_monitor_schema)
+    Req.post!(client(opts), url: "/monitor", json: to_body(params, @create_monitor_key_mapping))
+  end
+
+
   @doc """
   Delete a browser session
 
@@ -420,9 +489,36 @@ defmodule Firecrawl do
   end
 
 
+  @doc """
+  Delete a monitor
+
+  `DELETE /monitor/{monitorId}`
+
+  Tag: Monitoring
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec delete_monitor(keyword()) :: response()
+  def delete_monitor(opts \\ []) do
+    Req.delete(client(opts), url: "/monitor/{monitorId}")
+  end
+
+
+  @doc """
+  Bang variant of `delete_monitor`. Raises on error.
+  """
+  @spec delete_monitor!(keyword()) :: Req.Response.t()
+  def delete_monitor!(opts \\ []) do
+    Req.delete!(client(opts), url: "/monitor/{monitorId}")
+  end
+
+
   @execute_browser_code_schema NimbleOptions.new!([
     code: [type: :string, required: true, doc: "Code to execute in the browser sandbox"],
-    language: [type: {:in, [:python, :node, :bash]}, doc: "Language of the code to execute. Use `node` for JavaScript or `bash` for agent-browser CLI commands."],
+    language: [type: {:or, [{:in, [:python, :node, :bash]}, :string]}, doc: "Language of the code to execute. Use `node` for JavaScript or `bash` for agent-browser CLI commands."],
     timeout: [type: :integer, doc: "Execution timeout in seconds"]
   ])
 
@@ -495,7 +591,7 @@ defmodule Firecrawl do
 
 
   @get_activity_query_schema NimbleOptions.new!([
-    endpoint: [type: {:in, [:scrape, :crawl, :batch_scrape, :search, :extract, :llmstxt, :deep_research, :map, :agent, :browser, :interact]}, doc: "Filter by endpoint"],
+    endpoint: [type: {:or, [{:in, [:scrape, :crawl, :batch_scrape, :search, :extract, :llmstxt, :deep_research, :map, :agent, :browser, :interact]}, :string]}, doc: "Filter by endpoint"],
     limit: [type: :integer, doc: "Maximum number of results per page"],
     cursor: [type: :string, doc: "Cursor for pagination. Use the cursor value from the previous response."]
   ])
@@ -761,6 +857,81 @@ defmodule Firecrawl do
 
 
   @doc """
+  Get a monitor
+
+  `GET /monitor/{monitorId}`
+
+  Tag: Monitoring
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec get_monitor(keyword()) :: response()
+  def get_monitor(opts \\ []) do
+    Req.get(client(opts), url: "/monitor/{monitorId}")
+  end
+
+
+  @doc """
+  Bang variant of `get_monitor`. Raises on error.
+  """
+  @spec get_monitor!(keyword()) :: Req.Response.t()
+  def get_monitor!(opts \\ []) do
+    Req.get!(client(opts), url: "/monitor/{monitorId}")
+  end
+
+
+  @get_monitor_check_query_schema NimbleOptions.new!([
+    limit: [type: :integer],
+    skip: [type: :integer, doc: "Number of page results to skip. Use the `next` URL from the previous response for pagination."],
+    status: [type: {:or, [{:in, [:same, :new, :changed, :removed, :error]}, :string]}]
+  ])
+
+  @get_monitor_check_query_key_mapping %{limit: "limit", skip: "skip", status: "status"}
+
+  @doc """
+  Get a monitor check
+
+  `GET /monitor/{monitorId}/checks/{checkId}`
+
+  Tag: Monitoring
+
+  ## Path Parameters
+
+    * `check_id` - Path parameter `checkId`
+
+  ## Query Parameters
+
+    * `limit` — query parameter `limit`
+    * `skip` — query parameter `skip`
+    * `status` — query parameter `status`
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec get_monitor_check(String.t(), keyword(), keyword()) :: response()
+  def get_monitor_check(check_id, params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @get_monitor_check_query_schema) do
+      Req.get(client(opts), url: "/monitor/{monitorId}/checks/#{check_id}", params: to_query(params, @get_monitor_check_query_key_mapping))
+    end
+  end
+
+
+  @doc """
+  Bang variant of `get_monitor_check`. Raises on error.
+  """
+  @spec get_monitor_check!(String.t(), keyword(), keyword()) :: Req.Response.t()
+  def get_monitor_check!(check_id, params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @get_monitor_check_query_schema)
+    Req.get!(client(opts), url: "/monitor/{monitorId}/checks/#{check_id}", params: to_query(params, @get_monitor_check_query_key_mapping))
+  end
+
+
+  @doc """
   Metrics about your team's scrape queue
 
   `GET /team/queue-status`
@@ -787,9 +958,40 @@ defmodule Firecrawl do
   end
 
 
+  @doc """
+  Get the status of a scrape job
+
+  `GET /scrape/{jobId}`
+
+  Tag: Scraping
+
+  ## Path Parameters
+
+    * `job_id` - Path parameter `jobId`
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec get_scrape_status(String.t(), keyword()) :: response()
+  def get_scrape_status(job_id, opts \\ []) do
+    Req.get(client(opts), url: "/scrape/#{job_id}")
+  end
+
+
+  @doc """
+  Bang variant of `get_scrape_status`. Raises on error.
+  """
+  @spec get_scrape_status!(String.t(), keyword()) :: Req.Response.t()
+  def get_scrape_status!(job_id, opts \\ []) do
+    Req.get!(client(opts), url: "/scrape/#{job_id}")
+  end
+
+
   @interact_with_scrape_browser_session_schema NimbleOptions.new!([
     code: [type: :string, required: true, doc: "Code to execute in the scrape-bound browser sandbox"],
-    language: [type: {:in, [:python, :node, :bash]}, doc: "Language of the code to execute. Use `node` for JavaScript or `bash` for agent-browser CLI commands."],
+    language: [type: {:or, [{:in, [:python, :node, :bash]}, :string]}, doc: "Language of the code to execute. Use `node` for JavaScript or `bash` for agent-browser CLI commands."],
     origin: [type: :string, doc: "Optional origin label used for execution telemetry"],
     timeout: [type: :integer, doc: "Execution timeout in seconds"]
   ])
@@ -836,7 +1038,7 @@ defmodule Firecrawl do
 
 
   @list_browser_sessions_query_schema NimbleOptions.new!([
-    status: [type: {:in, [:active, :destroyed]}, doc: "Filter sessions by status"]
+    status: [type: {:or, [{:in, [:active, :destroyed]}, :string]}, doc: "Filter sessions by status"]
   ])
 
   @list_browser_sessions_query_key_mapping %{status: "status"}
@@ -872,6 +1074,92 @@ defmodule Firecrawl do
   def list_browser_sessions!(params \\ [], opts \\ []) do
     params = NimbleOptions.validate!(params, @list_browser_sessions_query_schema)
     Req.get!(client(opts), url: "/browser", params: to_query(params, @list_browser_sessions_query_key_mapping))
+  end
+
+
+  @list_monitor_checks_query_schema NimbleOptions.new!([
+    limit: [type: :integer],
+    offset: [type: :integer],
+    status: [type: {:or, [{:in, [:queued, :running, :completed, :failed, :partial, :skipped_overlap]}, :string]}, doc: "Filter checks by status."]
+  ])
+
+  @list_monitor_checks_query_key_mapping %{limit: "limit", offset: "offset", status: "status"}
+
+  @doc """
+  List monitor checks
+
+  `GET /monitor/{monitorId}/checks`
+
+  Tag: Monitoring
+
+  ## Query Parameters
+
+    * `limit` — query parameter `limit`
+    * `offset` — query parameter `offset`
+    * `status` — query parameter `status`
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec list_monitor_checks(keyword(), keyword()) :: response()
+  def list_monitor_checks(params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @list_monitor_checks_query_schema) do
+      Req.get(client(opts), url: "/monitor/{monitorId}/checks", params: to_query(params, @list_monitor_checks_query_key_mapping))
+    end
+  end
+
+
+  @doc """
+  Bang variant of `list_monitor_checks`. Raises on error.
+  """
+  @spec list_monitor_checks!(keyword(), keyword()) :: Req.Response.t()
+  def list_monitor_checks!(params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @list_monitor_checks_query_schema)
+    Req.get!(client(opts), url: "/monitor/{monitorId}/checks", params: to_query(params, @list_monitor_checks_query_key_mapping))
+  end
+
+
+  @list_monitors_query_schema NimbleOptions.new!([
+    limit: [type: :integer],
+    offset: [type: :integer]
+  ])
+
+  @list_monitors_query_key_mapping %{limit: "limit", offset: "offset"}
+
+  @doc """
+  List monitors
+
+  `GET /monitor`
+
+  Tag: Monitoring
+
+  ## Query Parameters
+
+    * `limit` — query parameter `limit`
+    * `offset` — query parameter `offset`
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec list_monitors(keyword(), keyword()) :: response()
+  def list_monitors(params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @list_monitors_query_schema) do
+      Req.get(client(opts), url: "/monitor", params: to_query(params, @list_monitors_query_key_mapping))
+    end
+  end
+
+
+  @doc """
+  Bang variant of `list_monitors`. Raises on error.
+  """
+  @spec list_monitors!(keyword(), keyword()) :: Req.Response.t()
+  def list_monitors!(params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @list_monitors_query_schema)
+    Req.get!(client(opts), url: "/monitor", params: to_query(params, @list_monitors_query_key_mapping))
   end
 
 
@@ -935,14 +1223,13 @@ defmodule Firecrawl do
     origin: [type: :string, doc: "Origin identifier for analytics and logging."],
     parsers: [type: {:list, :any}, doc: "Controls file parser behavior when relevant (for example PDF parser mode)."],
     proxy: [type: {:or, [{:in, [:basic, :auto]}, :string]}, doc: "Proxy mode for parse uploads. `/parse` supports only `basic` and `auto`."],
-    redact_pii: [type: :boolean, doc: "Redact personally identifiable information from returned content."],
     remove_base64_images: [type: :boolean, doc: "Remove base64-encoded images from output and keep alt text placeholders."],
     skip_tls_verification: [type: :boolean, doc: "Skip TLS certificate verification when making requests."],
     timeout: [type: :integer, doc: "Timeout in milliseconds for the request. Default is 30000 (30 seconds). Maximum is 300000 (300 seconds)."],
     zero_data_retention: [type: :boolean, doc: "If true, this will enable zero data retention for this parse. To enable this feature, please contact help@firecrawl.dev"]
   ])
 
-  @parse_file_key_mapping %{block_ads: "blockAds", exclude_tags: "excludeTags", formats: "formats", headers: "headers", include_tags: "includeTags", integration: "integration", only_main_content: "onlyMainContent", origin: "origin", parsers: "parsers", proxy: "proxy", redact_pii: "redactPII", remove_base64_images: "removeBase64Images", skip_tls_verification: "skipTlsVerification", timeout: "timeout", zero_data_retention: "zeroDataRetention"}
+  @parse_file_key_mapping %{block_ads: "blockAds", exclude_tags: "excludeTags", formats: "formats", headers: "headers", include_tags: "includeTags", integration: "integration", only_main_content: "onlyMainContent", origin: "origin", parsers: "parsers", proxy: "proxy", remove_base64_images: "removeBase64Images", skip_tls_verification: "skipTlsVerification", timeout: "timeout", zero_data_retention: "zeroDataRetention"}
 
   @doc """
   Upload and parse a file
@@ -974,12 +1261,18 @@ defmodule Firecrawl do
   """
   @spec parse_file(keyword(), keyword(), keyword()) :: response()
   def parse_file(file, params \\ [], opts \\ []) do
-    with {:ok, params} <- NimbleOptions.validate(params, @parse_file_schema),
-         {:ok, filename} <- fetch_file_field(file, :filename),
-         :ok <- validate_filename(filename),
-         {:ok, data} <- fetch_file_field(file, :data),
-         :ok <- validate_data(data) do
+    with {:ok, params} <- NimbleOptions.validate(params, @parse_file_schema) do
+      filename = Keyword.fetch!(file, :filename)
+      data = Keyword.fetch!(file, :data)
       content_type = Keyword.get(file, :content_type)
+
+      if not is_binary(filename) or filename == "" do
+        raise ArgumentError, "filename cannot be empty"
+      end
+
+      if is_nil(data) do
+        raise ArgumentError, "file data cannot be empty"
+      end
 
       file_part =
         case content_type do
@@ -1024,33 +1317,60 @@ defmodule Firecrawl do
   end
 
 
+  @doc """
+  Run a monitor
+
+  `POST /monitor/{monitorId}/run`
+
+  Tag: Monitoring
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec run_monitor(keyword()) :: response()
+  def run_monitor(opts \\ []) do
+    Req.post(client(opts), url: "/monitor/{monitorId}/run")
+  end
+
+
+  @doc """
+  Bang variant of `run_monitor`. Raises on error.
+  """
+  @spec run_monitor!(keyword()) :: Req.Response.t()
+  def run_monitor!(opts \\ []) do
+    Req.post!(client(opts), url: "/monitor/{monitorId}/run")
+  end
+
+
   @scrape_and_extract_from_url_schema NimbleOptions.new!([
     url: [type: :string, required: true, doc: "The URL to scrape"],
     actions: [type: {:list, :any}, doc: "Actions to perform on the page before grabbing the content"],
     block_ads: [type: :boolean, doc: "Enables ad-blocking and cookie popup blocking."],
     exclude_tags: [type: {:list, :string}, doc: "Tags to exclude from the output."],
-    formats: [type: {:list, :any}, doc: "Output formats to include in the response. You can specify one or more formats, either as strings (e.g., `'markdown'`) or as objects with additional options (e.g., `{ type: 'json', schema: {...} }`, `{ type: 'question', question: '...' }`, `{ type: 'highlights', query: '...' }`). The legacy `{ type: 'query', prompt: '...', mode: 'freeform' | 'directQuote' }` format is deprecated."],
+    formats: [type: {:list, :any}, doc: "Output formats to include in the response. You can specify one or more formats, either as strings (e.g., `'markdown'`) or as objects with additional options (e.g., `{ type: 'json', schema: {...} }`). Some formats require specific options to be set. Example: `['markdown', { type: 'json', schema: {...} }]`."],
     headers: [type: :any, doc: "Headers to send with the request. Can be used to send cookies, user-agent, etc."],
     include_tags: [type: {:list, :string}, doc: "Tags to include in the output."],
     location: [type: :keyword_list, doc: "Location settings for the request. When specified, this will use an appropriate proxy if available and emulate the corresponding language and timezone settings. Defaults to 'US' if not specified."],
+    lockdown: [type: :boolean, doc: "If true, serves the request from Firecrawl's cache only and never makes an outbound request to the target URL. Designed for compliance-constrained or air-gapped environments where the scrape request itself could leak sensitive information. On cache miss, returns a 404 with error code SCRAPE_LOCKDOWN_CACHE_MISS (the URL is never logged on miss). Lockdown requests are treated as zero data retention. Default maxAge is extended to 2 years so existing cached pages remain eligible. Billed at 5 credits on hit, 1 credit on cache miss."],
     max_age: [type: :integer, doc: "Returns a cached version of the page if it is younger than this age in milliseconds. If a cached version of the page is older than this value, the page will be scraped. If you do not need extremely fresh data, enabling this can speed up your scrapes by 500%. Defaults to 2 days."],
     min_age: [type: :integer, doc: "When set, the request only checks the cache and never triggers a fresh scrape. The value is in milliseconds and specifies the minimum age the cached data must be. If matching cached data exists, it is returned instantly. If no cached data is found, a 404 with error code SCRAPE_NO_CACHED_DATA is returned. Set to 1 to accept any cached data regardless of age."],
     mobile: [type: :boolean, doc: "Set to true if you want to emulate scraping from a mobile device. Useful for testing responsive pages and taking mobile screenshots."],
-    only_main_content: [type: :boolean, doc: "Only return the main content of the page excluding headers, navs, footers, etc."],
+    only_clean_content: [type: :boolean, doc: "Beta. Run an additional LLM-based pass over the generated markdown to remove residual boilerplate that `onlyMainContent` can miss (cookie banners, ad blocks, social share widgets, breadcrumbs, newsletter signups, comment sections, related-article lists). Headings, lists, tables, code blocks, image references, and inline links are preserved. Can be combined with `onlyMainContent` (the most common setup) or used on its own. Skipped with a warning when the markdown exceeds the cleaning model's output token limit (the original markdown is preserved). Not supported on zero-data-retention requests."],
+    only_main_content: [type: :boolean, doc: "Only return the main content of the page excluding headers, navs, footers, etc. This is a deterministic HTML-level filter applied before markdown is generated; no LLM is involved."],
     parsers: [type: {:list, :any}, doc: "Controls how files are processed during scraping. When \"pdf\" is included (default), the PDF content is extracted and converted to markdown format, with billing based on the number of pages (1 credit per page). When an empty array is passed, the PDF file is returned in base64 encoding with a flat rate of 1 credit for the entire PDF."],
     profile: [type: :keyword_list, doc: "Enable persistent browser storage across scrape and interact sessions. Pass a profile when scraping to preserve cookies, localStorage, and session data. Sessions with the same profile name share browser state."],
-    proxy: [type: {:in, [:basic, :enhanced, :auto]}, doc: "Specifies the type of proxy to use.\n\n - **basic**: Proxies for scraping sites with none to basic anti-bot solutions. Fast and usually works.\n - **enhanced**: Enhanced proxies for scraping sites with advanced anti-bot solutions. Slower, but more reliable on certain sites. Costs up to 5 credits per request.\n - **auto**: Firecrawl will automatically retry scraping with enhanced proxies if the basic proxy fails. If the retry with enhanced is successful, 5 credits will be billed for the scrape. If the first attempt with basic is successful, only the regular cost will be billed."],
-    redact_pii: [type: :boolean, doc: "Redact personally identifiable information from returned content."],
+    proxy: [type: {:or, [{:in, [:basic, :enhanced, :auto]}, :string]}, doc: "Specifies the type of proxy to use.\n\n - **basic**: Proxies for scraping sites with none to basic anti-bot solutions. Fast and usually works.\n - **enhanced**: Enhanced proxies for scraping sites with advanced anti-bot solutions. Slower, but more reliable on certain sites. Costs up to 5 credits per request.\n - **auto**: Firecrawl will automatically retry scraping with enhanced proxies if the basic proxy fails. If the retry with enhanced is successful, 5 credits will be billed for the scrape. If the first attempt with basic is successful, only the regular cost will be billed."],
     remove_base64_images: [type: :boolean, doc: "Removes all base 64 images from the markdown output, which may be overwhelmingly long. This does not affect html or rawHtml formats. The image's alt text remains in the output, but the URL is replaced with a placeholder."],
     skip_tls_verification: [type: :boolean, doc: "Skip TLS certificate verification when making requests."],
     store_in_cache: [type: :boolean, doc: "If true, the page will be stored in the Firecrawl index and cache. Setting this to false is useful if your scraping activity may have data protection concerns. Using some parameters associated with sensitive scraping (e.g. actions, headers) will force this parameter to be false."],
-    lockdown: [type: :boolean, doc: "If true, only previously cached results are served and no outbound request is ever made. If nothing is cached for the URL, a 404 with error code SCRAPE_LOCKDOWN_CACHE_MISS is returned. Other options are accepted but ignored in lockdown mode."],
     timeout: [type: :integer, doc: "Timeout in milliseconds for the request. Minimum is 1000 (1 second). Default is 60000 (60 seconds). Maximum is 300000 (300 seconds)."],
     wait_for: [type: :integer, doc: "Specify a delay in milliseconds before fetching the content, allowing the page sufficient time to load. This waiting time is in addition to Firecrawl's smart wait feature."],
     zero_data_retention: [type: :boolean, doc: "If true, this will enable zero data retention for this scrape. To enable this feature, please contact help@firecrawl.dev"]
   ])
 
-  @scrape_and_extract_from_url_key_mapping %{url: "url", actions: "actions", block_ads: "blockAds", exclude_tags: "excludeTags", formats: "formats", headers: "headers", include_tags: "includeTags", location: "location", max_age: "maxAge", min_age: "minAge", mobile: "mobile", only_main_content: "onlyMainContent", parsers: "parsers", profile: "profile", proxy: "proxy", redact_pii: "redactPII", remove_base64_images: "removeBase64Images", skip_tls_verification: "skipTlsVerification", store_in_cache: "storeInCache", lockdown: "lockdown", timeout: "timeout", wait_for: "waitFor", zero_data_retention: "zeroDataRetention"}
+  @scrape_and_extract_from_url_key_mapping %{url: "url", actions: "actions", block_ads: "blockAds", exclude_tags: "excludeTags", formats: "formats", headers: "headers", include_tags: "includeTags", location: "location", lockdown: "lockdown", max_age: "maxAge", min_age: "minAge", mobile: "mobile", only_clean_content: "onlyCleanContent", only_main_content: "onlyMainContent", parsers: "parsers", profile: "profile", proxy: "proxy", remove_base64_images: "removeBase64Images", skip_tls_verification: "skipTlsVerification", store_in_cache: "storeInCache", timeout: "timeout", wait_for: "waitFor", zero_data_retention: "zeroDataRetention"}
 
   @doc """
   Scrape a single URL and optionally extract information using an LLM
@@ -1095,28 +1415,28 @@ defmodule Firecrawl do
     actions: [type: {:list, :any}, doc: "Actions to perform on the page before grabbing the content"],
     block_ads: [type: :boolean, doc: "Enables ad-blocking and cookie popup blocking."],
     exclude_tags: [type: {:list, :string}, doc: "Tags to exclude from the output."],
-    formats: [type: {:list, :any}, doc: "Output formats to include in the response. You can specify one or more formats, either as strings (e.g., `'markdown'`) or as objects with additional options (e.g., `{ type: 'json', schema: {...} }`, `{ type: 'question', question: '...' }`, `{ type: 'highlights', query: '...' }`). The legacy `{ type: 'query', prompt: '...', mode: 'freeform' | 'directQuote' }` format is deprecated."],
+    formats: [type: {:list, :any}, doc: "Output formats to include in the response. You can specify one or more formats, either as strings (e.g., `'markdown'`) or as objects with additional options (e.g., `{ type: 'json', schema: {...} }`). Some formats require specific options to be set. Example: `['markdown', { type: 'json', schema: {...} }]`."],
     headers: [type: :any, doc: "Headers to send with the request. Can be used to send cookies, user-agent, etc."],
     include_tags: [type: {:list, :string}, doc: "Tags to include in the output."],
     location: [type: :keyword_list, doc: "Location settings for the request. When specified, this will use an appropriate proxy if available and emulate the corresponding language and timezone settings. Defaults to 'US' if not specified."],
+    lockdown: [type: :boolean, doc: "If true, serves the request from Firecrawl's cache only and never makes an outbound request to the target URL. Designed for compliance-constrained or air-gapped environments where the scrape request itself could leak sensitive information. On cache miss, returns a 404 with error code SCRAPE_LOCKDOWN_CACHE_MISS (the URL is never logged on miss). Lockdown requests are treated as zero data retention. Default maxAge is extended to 2 years so existing cached pages remain eligible. Billed at 5 credits on hit, 1 credit on cache miss."],
     max_age: [type: :integer, doc: "Returns a cached version of the page if it is younger than this age in milliseconds. If a cached version of the page is older than this value, the page will be scraped. If you do not need extremely fresh data, enabling this can speed up your scrapes by 500%. Defaults to 2 days."],
     min_age: [type: :integer, doc: "When set, the request only checks the cache and never triggers a fresh scrape. The value is in milliseconds and specifies the minimum age the cached data must be. If matching cached data exists, it is returned instantly. If no cached data is found, a 404 with error code SCRAPE_NO_CACHED_DATA is returned. Set to 1 to accept any cached data regardless of age."],
     mobile: [type: :boolean, doc: "Set to true if you want to emulate scraping from a mobile device. Useful for testing responsive pages and taking mobile screenshots."],
-    only_main_content: [type: :boolean, doc: "Only return the main content of the page excluding headers, navs, footers, etc."],
+    only_clean_content: [type: :boolean, doc: "Beta. Run an additional LLM-based pass over the generated markdown to remove residual boilerplate that `onlyMainContent` can miss (cookie banners, ad blocks, social share widgets, breadcrumbs, newsletter signups, comment sections, related-article lists). Headings, lists, tables, code blocks, image references, and inline links are preserved. Can be combined with `onlyMainContent` (the most common setup) or used on its own. Skipped with a warning when the markdown exceeds the cleaning model's output token limit (the original markdown is preserved). Not supported on zero-data-retention requests."],
+    only_main_content: [type: :boolean, doc: "Only return the main content of the page excluding headers, navs, footers, etc. This is a deterministic HTML-level filter applied before markdown is generated; no LLM is involved."],
     parsers: [type: {:list, :any}, doc: "Controls how files are processed during scraping. When \"pdf\" is included (default), the PDF content is extracted and converted to markdown format, with billing based on the number of pages (1 credit per page). When an empty array is passed, the PDF file is returned in base64 encoding with a flat rate of 1 credit for the entire PDF."],
     profile: [type: :keyword_list, doc: "Enable persistent browser storage across scrape and interact sessions. Pass a profile when scraping to preserve cookies, localStorage, and session data. Sessions with the same profile name share browser state."],
-    proxy: [type: {:in, [:basic, :enhanced, :auto]}, doc: "Specifies the type of proxy to use.\n\n - **basic**: Proxies for scraping sites with none to basic anti-bot solutions. Fast and usually works.\n - **enhanced**: Enhanced proxies for scraping sites with advanced anti-bot solutions. Slower, but more reliable on certain sites. Costs up to 5 credits per request.\n - **auto**: Firecrawl will automatically retry scraping with enhanced proxies if the basic proxy fails. If the retry with enhanced is successful, 5 credits will be billed for the scrape. If the first attempt with basic is successful, only the regular cost will be billed."],
-    redact_pii: [type: :boolean, doc: "Redact personally identifiable information from returned content."],
+    proxy: [type: {:or, [{:in, [:basic, :enhanced, :auto]}, :string]}, doc: "Specifies the type of proxy to use.\n\n - **basic**: Proxies for scraping sites with none to basic anti-bot solutions. Fast and usually works.\n - **enhanced**: Enhanced proxies for scraping sites with advanced anti-bot solutions. Slower, but more reliable on certain sites. Costs up to 5 credits per request.\n - **auto**: Firecrawl will automatically retry scraping with enhanced proxies if the basic proxy fails. If the retry with enhanced is successful, 5 credits will be billed for the scrape. If the first attempt with basic is successful, only the regular cost will be billed."],
     remove_base64_images: [type: :boolean, doc: "Removes all base 64 images from the markdown output, which may be overwhelmingly long. This does not affect html or rawHtml formats. The image's alt text remains in the output, but the URL is replaced with a placeholder."],
     skip_tls_verification: [type: :boolean, doc: "Skip TLS certificate verification when making requests."],
     store_in_cache: [type: :boolean, doc: "If true, the page will be stored in the Firecrawl index and cache. Setting this to false is useful if your scraping activity may have data protection concerns. Using some parameters associated with sensitive scraping (e.g. actions, headers) will force this parameter to be false."],
-    lockdown: [type: :boolean, doc: "If true, only previously cached results are served and no outbound request is ever made. If nothing is cached for the URL, a 404 with error code SCRAPE_LOCKDOWN_CACHE_MISS is returned. Other options are accepted but ignored in lockdown mode."],
     timeout: [type: :integer, doc: "Timeout in milliseconds for the request. Minimum is 1000 (1 second). Default is 60000 (60 seconds). Maximum is 300000 (300 seconds)."],
     wait_for: [type: :integer, doc: "Specify a delay in milliseconds before fetching the content, allowing the page sufficient time to load. This waiting time is in addition to Firecrawl's smart wait feature."],
     zero_data_retention: [type: :boolean, doc: "If true, this will enable zero data retention for this batch scrape. To enable this feature, please contact help@firecrawl.dev"]
   ])
 
-  @scrape_and_extract_from_urls_key_mapping %{ignore_invalid_urls: "ignoreInvalidURLs", max_concurrency: "maxConcurrency", urls: "urls", webhook: "webhook", actions: "actions", block_ads: "blockAds", exclude_tags: "excludeTags", formats: "formats", headers: "headers", include_tags: "includeTags", location: "location", max_age: "maxAge", min_age: "minAge", mobile: "mobile", only_main_content: "onlyMainContent", parsers: "parsers", profile: "profile", proxy: "proxy", redact_pii: "redactPII", remove_base64_images: "removeBase64Images", skip_tls_verification: "skipTlsVerification", store_in_cache: "storeInCache", lockdown: "lockdown", timeout: "timeout", wait_for: "waitFor", zero_data_retention: "zeroDataRetention"}
+  @scrape_and_extract_from_urls_key_mapping %{ignore_invalid_urls: "ignoreInvalidURLs", max_concurrency: "maxConcurrency", urls: "urls", webhook: "webhook", actions: "actions", block_ads: "blockAds", exclude_tags: "excludeTags", formats: "formats", headers: "headers", include_tags: "includeTags", location: "location", lockdown: "lockdown", max_age: "maxAge", min_age: "minAge", mobile: "mobile", only_clean_content: "onlyCleanContent", only_main_content: "onlyMainContent", parsers: "parsers", profile: "profile", proxy: "proxy", remove_base64_images: "removeBase64Images", skip_tls_verification: "skipTlsVerification", store_in_cache: "storeInCache", timeout: "timeout", wait_for: "waitFor", zero_data_retention: "zeroDataRetention"}
 
   @doc """
   Scrape multiple URLs and optionally extract information using an LLM
@@ -1157,10 +1477,10 @@ defmodule Firecrawl do
     categories: [type: {:list, :any}, doc: "Categories to filter results by. Defaults to [], which means results will not be filtered by any categories."],
     country: [type: :string, doc: "ISO country code for geo-targeting search results (e.g. `US`). For best results, set both this and the `location` parameter."],
     enterprise: [type: {:list, :string}, doc: "Enterprise search options for Zero Data Retention (ZDR). Use `[\"zdr\"]` for end-to-end ZDR (10 credits / 10 results) or `[\"anon\"]` for anonymized ZDR (2 credits / 10 results). Must be enabled for your team."],
-    exclude_domains: [type: {:list, :string}, doc: "Domains to exclude from search results."],
+    exclude_domains: [type: {:list, :string}, doc: "Excludes search results from the specified domains. Domains should be hostnames only, without protocol or path. Cannot be used with includeDomains."],
     ignore_invalid_urls: [type: :boolean, doc: "Excludes URLs from the search results that are invalid for other Firecrawl endpoints. This helps reduce errors if you are piping data from search into other Firecrawl API endpoints."],
-    include_domains: [type: {:list, :string}, doc: "Domains to include in search results."],
-    limit: [type: :integer, doc: "Maximum number of results to return"],
+    include_domains: [type: {:list, :string}, doc: "Restricts search results to the specified domains. Domains should be hostnames only, without protocol or path. Cannot be used with excludeDomains."],
+    limit: [type: :integer, doc: "Maximum number of results to return (per source type when using multiple sources)"],
     location: [type: :string, doc: "Location parameter for search results (e.g. `San Francisco,California,United States`). For best results, set both this and the `country` parameter."],
     query: [type: :string, required: true, doc: "The search query"],
     scrape_options: [type: :keyword_list, doc: "Options for scraping search results"],
@@ -1203,6 +1523,47 @@ defmodule Firecrawl do
   def search_and_scrape!(params \\ [], opts \\ []) do
     params = NimbleOptions.validate!(params, @search_and_scrape_schema)
     Req.post!(client(opts), url: "/search", json: to_body(params, @search_and_scrape_key_mapping))
+  end
+
+
+  @search_support_docs_schema NimbleOptions.new!([
+    question: [type: :string, required: true, doc: "Documentation question to answer."]
+  ])
+
+  @search_support_docs_key_mapping %{question: "question"}
+
+  @doc """
+  Search Firecrawl docs with citations
+
+  `POST /support/docs-search`
+
+  Tag: Support
+
+  ## Parameters
+
+  Validated by `NimbleOptions`. Pass params as a keyword list with snake_case keys.
+  See `@search_support_docs_schema` for the full schema.
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec search_support_docs(keyword(), keyword()) :: response()
+  def search_support_docs(params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @search_support_docs_schema) do
+      Req.post(client(opts), url: "/support/docs-search", json: to_body(params, @search_support_docs_key_mapping))
+    end
+  end
+
+
+  @doc """
+  Bang variant of `search_support_docs`. Raises on error.
+  """
+  @spec search_support_docs!(keyword(), keyword()) :: Req.Response.t()
+  def search_support_docs!(params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @search_support_docs_schema)
+    Req.post!(client(opts), url: "/support/docs-search", json: to_body(params, @search_support_docs_key_mapping))
   end
 
 
@@ -1282,278 +1643,103 @@ defmodule Firecrawl do
     Req.delete!(client(opts), url: "/scrape/#{job_id}/interact")
   end
 
-  @monitor_key_mapping %{
-    name: "name",
-    schedule: "schedule",
-    targets: "targets",
-    webhook: "webhook",
-    notification: "notification",
-    retention_days: "retentionDays",
-    status: "status",
-    goal: "goal",
-    judge_enabled: "judgeEnabled"
-  }
 
-  @monitor_list_key_mapping %{limit: "limit", offset: "offset"}
-  @monitor_check_list_key_mapping %{limit: "limit", offset: "offset", status: "status"}
-  @monitor_check_key_mapping %{limit: "limit", skip: "skip", status: "status"}
+  @submit_search_feedback_schema NimbleOptions.new!([
+    integration: [type: :string],
+    missing_content: [type: {:list, :any}],
+    origin: [type: :string],
+    query_suggestions: [type: :string],
+    rating: [type: {:or, [{:in, [:good, :bad, :partial]}, :string]}, required: true],
+    valuable_sources: [type: {:list, :any}]
+  ])
 
-  @monitor_schema NimbleOptions.new!([
+  @submit_search_feedback_key_mapping %{integration: "integration", missing_content: "missingContent", origin: "origin", query_suggestions: "querySuggestions", rating: "rating", valuable_sources: "valuableSources"}
+
+  @doc """
+  Submit feedback for a search job
+
+  `POST /search/{jobId}/feedback`
+
+  Tag: Search
+
+  ## Path Parameters
+
+    * `job_id` - Path parameter `jobId`
+
+  ## Parameters
+
+  Validated by `NimbleOptions`. Pass params as a keyword list with snake_case keys.
+  See `@submit_search_feedback_schema` for the full schema.
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
+  """
+  @spec submit_search_feedback(String.t(), keyword(), keyword()) :: response()
+  def submit_search_feedback(job_id, params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @submit_search_feedback_schema) do
+      Req.post(client(opts), url: "/search/#{job_id}/feedback", json: to_body(params, @submit_search_feedback_key_mapping))
+    end
+  end
+
+
+  @doc """
+  Bang variant of `submit_search_feedback`. Raises on error.
+  """
+  @spec submit_search_feedback!(String.t(), keyword(), keyword()) :: Req.Response.t()
+  def submit_search_feedback!(job_id, params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @submit_search_feedback_schema)
+    Req.post!(client(opts), url: "/search/#{job_id}/feedback", json: to_body(params, @submit_search_feedback_key_mapping))
+  end
+
+
+  @update_monitor_schema NimbleOptions.new!([
+    goal: [type: :string, doc: "Plain-language goal used to judge whether changed pages are meaningful. If provided and `judgeEnabled` is omitted, judging is enabled automatically."],
+    judge_enabled: [type: :boolean, doc: "Whether to judge changed pages against `goal`. Requires a non-empty `goal` to run."],
     name: [type: :string],
-    schedule: [type: :any],
-    targets: [type: {:list, :any}],
-    webhook: [type: :any],
-    notification: [type: :any],
+    notification: [type: :keyword_list],
     retention_days: [type: :integer],
-    status: [type: :any],
-    goal: [type: :any],
-    judge_enabled: [type: :boolean]
+    schedule: [type: :keyword_list, doc: "Schedule for monitor checks. Provide either `cron` or `text`."],
+    status: [type: {:or, [{:in, [:active, :paused]}, :string]}],
+    targets: [type: {:list, :any}],
+    webhook: [type: :keyword_list, doc: "Webhook destination for monitor page and check completion events."]
   ])
 
-  @monitor_list_schema NimbleOptions.new!([
-    limit: [type: :integer],
-    offset: [type: :integer]
-  ])
-
-  @monitor_check_list_schema NimbleOptions.new!([
-    limit: [type: :integer],
-    offset: [type: :integer],
-    status: [type: :any]
-  ])
-
-  @monitor_check_schema NimbleOptions.new!([
-    limit: [type: :integer],
-    skip: [type: :integer],
-    status: [type: :any]
-  ])
+  @update_monitor_key_mapping %{goal: "goal", judge_enabled: "judgeEnabled", name: "name", notification: "notification", retention_days: "retentionDays", schedule: "schedule", status: "status", targets: "targets", webhook: "webhook"}
 
   @doc """
-  Create a scheduled monitor.
-
-  `POST /monitor`
-  """
-  @spec create_monitor(keyword(), keyword()) :: response()
-  def create_monitor(params \\ [], opts \\ []) do
-    with {:ok, params} <- NimbleOptions.validate(params, @monitor_schema) do
-      Req.post(client(opts), url: "/monitor", json: to_body(params, @monitor_key_mapping))
-    end
-  end
-
-  @doc """
-  Bang variant of `create_monitor`. Raises on error.
-  """
-  @spec create_monitor!(keyword(), keyword()) :: Req.Response.t()
-  def create_monitor!(params \\ [], opts \\ []) do
-    params = NimbleOptions.validate!(params, @monitor_schema)
-    Req.post!(client(opts), url: "/monitor", json: to_body(params, @monitor_key_mapping))
-  end
-
-  @doc """
-  List monitors for the authenticated team.
-
-  `GET /monitor`
-  """
-  @spec list_monitors(keyword(), keyword()) :: response()
-  def list_monitors(params \\ [], opts \\ []) do
-    with {:ok, params} <- NimbleOptions.validate(params, @monitor_list_schema) do
-      Req.get(client(opts), url: "/monitor", params: to_query(params, @monitor_list_key_mapping))
-    end
-  end
-
-  @doc """
-  Bang variant of `list_monitors`. Raises on error.
-  """
-  @spec list_monitors!(keyword(), keyword()) :: Req.Response.t()
-  def list_monitors!(params \\ [], opts \\ []) do
-    params = NimbleOptions.validate!(params, @monitor_list_schema)
-    Req.get!(client(opts), url: "/monitor", params: to_query(params, @monitor_list_key_mapping))
-  end
-
-  @doc """
-  Get a monitor by ID.
-
-  `GET /monitor/{monitorId}`
-  """
-  @spec get_monitor(String.t(), keyword()) :: response()
-  def get_monitor(monitor_id, opts \\ []) do
-    Req.get(client(opts), url: "/monitor/#{monitor_id}")
-  end
-
-  @doc """
-  Bang variant of `get_monitor`. Raises on error.
-  """
-  @spec get_monitor!(String.t(), keyword()) :: Req.Response.t()
-  def get_monitor!(monitor_id, opts \\ []) do
-    Req.get!(client(opts), url: "/monitor/#{monitor_id}")
-  end
-
-  @doc """
-  Update a monitor.
+  Update a monitor
 
   `PATCH /monitor/{monitorId}`
+
+  Tag: Monitoring
+
+  ## Parameters
+
+  Validated by `NimbleOptions`. Pass params as a keyword list with snake_case keys.
+  See `@update_monitor_schema` for the full schema.
+
+  ## Returns
+
+    * `{:ok, %Req.Response{}}` on success
+    * `{:error, exception}` on HTTP or validation failure
   """
-  @spec update_monitor(String.t(), keyword(), keyword()) :: response()
-  def update_monitor(monitor_id, params \\ [], opts \\ []) do
-    with {:ok, params} <- NimbleOptions.validate(params, @monitor_schema) do
-      Req.patch(client(opts), url: "/monitor/#{monitor_id}", json: to_body(params, @monitor_key_mapping))
+  @spec update_monitor(keyword(), keyword()) :: response()
+  def update_monitor(params \\ [], opts \\ []) do
+    with {:ok, params} <- NimbleOptions.validate(params, @update_monitor_schema) do
+      Req.patch(client(opts), url: "/monitor/{monitorId}", json: to_body(params, @update_monitor_key_mapping))
     end
   end
+
 
   @doc """
   Bang variant of `update_monitor`. Raises on error.
   """
-  @spec update_monitor!(String.t(), keyword(), keyword()) :: Req.Response.t()
-  def update_monitor!(monitor_id, params \\ [], opts \\ []) do
-    params = NimbleOptions.validate!(params, @monitor_schema)
-    Req.patch!(client(opts), url: "/monitor/#{monitor_id}", json: to_body(params, @monitor_key_mapping))
-  end
-
-  @doc """
-  Delete a monitor.
-
-  `DELETE /monitor/{monitorId}`
-  """
-  @spec delete_monitor(String.t(), keyword()) :: response()
-  def delete_monitor(monitor_id, opts \\ []) do
-    Req.delete(client(opts), url: "/monitor/#{monitor_id}")
-  end
-
-  @doc """
-  Bang variant of `delete_monitor`. Raises on error.
-  """
-  @spec delete_monitor!(String.t(), keyword()) :: Req.Response.t()
-  def delete_monitor!(monitor_id, opts \\ []) do
-    Req.delete!(client(opts), url: "/monitor/#{monitor_id}")
-  end
-
-  @doc """
-  Trigger a manual monitor check.
-
-  `POST /monitor/{monitorId}/run`
-  """
-  @spec run_monitor(String.t(), keyword()) :: response()
-  def run_monitor(monitor_id, opts \\ []) do
-    Req.post(client(opts), url: "/monitor/#{monitor_id}/run", json: %{})
-  end
-
-  @doc """
-  Bang variant of `run_monitor`. Raises on error.
-  """
-  @spec run_monitor!(String.t(), keyword()) :: Req.Response.t()
-  def run_monitor!(monitor_id, opts \\ []) do
-    Req.post!(client(opts), url: "/monitor/#{monitor_id}/run", json: %{})
-  end
-
-  @doc """
-  List checks for a monitor.
-
-  `GET /monitor/{monitorId}/checks`
-  """
-  @spec list_monitor_checks(String.t(), keyword(), keyword()) :: response()
-  def list_monitor_checks(monitor_id, params \\ [], opts \\ []) do
-    with {:ok, params} <- NimbleOptions.validate(params, @monitor_check_list_schema) do
-      Req.get(client(opts),
-        url: "/monitor/#{monitor_id}/checks",
-        params: to_query(params, @monitor_check_list_key_mapping)
-      )
-    end
-  end
-
-  @doc """
-  Bang variant of `list_monitor_checks`. Raises on error.
-  """
-  @spec list_monitor_checks!(String.t(), keyword(), keyword()) :: Req.Response.t()
-  def list_monitor_checks!(monitor_id, params \\ [], opts \\ []) do
-    params = NimbleOptions.validate!(params, @monitor_check_list_schema)
-    Req.get!(client(opts),
-      url: "/monitor/#{monitor_id}/checks",
-      params: to_query(params, @monitor_check_list_key_mapping)
-    )
-  end
-
-  @doc """
-  Get a monitor check with paginated page results and inline diffs.
-
-  `GET /monitor/{monitorId}/checks/{checkId}`
-  """
-  @spec get_monitor_check(String.t(), String.t(), keyword(), keyword()) :: response()
-  def get_monitor_check(monitor_id, check_id, params \\ [], opts \\ []) do
-    {auto_paginate, opts} = Keyword.pop(opts, :auto_paginate, true)
-
-    with {:ok, params} <- NimbleOptions.validate(params, @monitor_check_schema) do
-      case Req.get(client(opts),
-             url: "/monitor/#{monitor_id}/checks/#{check_id}",
-             params: to_query(params, @monitor_check_key_mapping)
-           ) do
-        {:ok, response} when auto_paginate -> {:ok, paginate_monitor_check_response(response, opts)}
-        result -> result
-      end
-    end
-  end
-
-  @doc """
-  Bang variant of `get_monitor_check`. Raises on error.
-  """
-  @spec get_monitor_check!(String.t(), String.t(), keyword(), keyword()) :: Req.Response.t()
-  def get_monitor_check!(monitor_id, check_id, params \\ [], opts \\ []) do
-    {auto_paginate, opts} = Keyword.pop(opts, :auto_paginate, true)
-    params = NimbleOptions.validate!(params, @monitor_check_schema)
-    response = Req.get!(client(opts),
-      url: "/monitor/#{monitor_id}/checks/#{check_id}",
-      params: to_query(params, @monitor_check_key_mapping)
-    )
-
-    if auto_paginate, do: paginate_monitor_check_response!(response, opts), else: response
-  end
-
-  defp paginate_monitor_check_response(%Req.Response{body: body} = response, opts) when is_map(body) do
-    data = Map.get(body, "data") || %{}
-    pages = Map.get(data, "pages") || []
-    next = Map.get(body, "next") || Map.get(data, "next")
-    pages = fetch_monitor_check_pages(next, pages, opts)
-    data = data |> Map.put("pages", pages) |> Map.put("next", nil)
-    %{response | body: body |> Map.put("data", data) |> Map.put("next", nil)}
-  end
-
-  defp paginate_monitor_check_response(response, _opts), do: response
-
-  defp paginate_monitor_check_response!(%Req.Response{body: body} = response, opts) when is_map(body) do
-    data = Map.get(body, "data") || %{}
-    pages = Map.get(data, "pages") || []
-    next = Map.get(body, "next") || Map.get(data, "next")
-    pages = fetch_monitor_check_pages!(next, pages, opts)
-    data = data |> Map.put("pages", pages) |> Map.put("next", nil)
-    %{response | body: body |> Map.put("data", data) |> Map.put("next", nil)}
-  end
-
-  defp paginate_monitor_check_response!(response, _opts), do: response
-
-  defp fetch_monitor_check_pages(nil, pages, _opts), do: pages
-  defp fetch_monitor_check_pages("", pages, _opts), do: pages
-
-  defp fetch_monitor_check_pages(next, pages, opts) do
-    case Req.get(client(opts), url: next) do
-      {:ok, %Req.Response{body: body}} when is_map(body) ->
-        data = Map.get(body, "data") || %{}
-        next_pages = Map.get(data, "pages") || []
-        next_url = Map.get(body, "next") || Map.get(data, "next")
-        fetch_monitor_check_pages(next_url, pages ++ next_pages, opts)
-
-      _ ->
-        pages
-    end
-  end
-
-  defp fetch_monitor_check_pages!(nil, pages, _opts), do: pages
-  defp fetch_monitor_check_pages!("", pages, _opts), do: pages
-
-  defp fetch_monitor_check_pages!(next, pages, opts) do
-    response = Req.get!(client(opts), url: next)
-    body = response.body
-    data = if is_map(body), do: Map.get(body, "data") || %{}, else: %{}
-    next_pages = Map.get(data, "pages") || []
-    next_url = if is_map(body), do: Map.get(body, "next") || Map.get(data, "next"), else: nil
-    fetch_monitor_check_pages!(next_url, pages ++ next_pages, opts)
+  @spec update_monitor!(keyword(), keyword()) :: Req.Response.t()
+  def update_monitor!(params \\ [], opts \\ []) do
+    params = NimbleOptions.validate!(params, @update_monitor_schema)
+    Req.patch!(client(opts), url: "/monitor/{monitorId}", json: to_body(params, @update_monitor_key_mapping))
   end
 
 end
